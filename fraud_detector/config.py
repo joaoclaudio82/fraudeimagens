@@ -73,6 +73,12 @@ class AnalysisConfig:
     ocr_code_threshold: int = 90        # similaridade mínima para códigos e números longos
     ocr_min_text_chars: int = 5
 
+    # Tipografia (usa as caixas de palavra do OCR)
+    typography_min_words: int = 6
+    typography_min_conf: float = 60.0
+    typography_height_tolerance: float = 0.3      # desvio relativo de altura na mesma linha
+    typography_baseline_tolerance: float = 0.35   # desvio da linha de base, em alturas de linha
+
     def with_overrides(self, **overrides: Any) -> "AnalysisConfig":
         return replace(self, **overrides)
 
