@@ -37,6 +37,20 @@ class AnalysisConfig:
     ghost_min_blocks: int = 8           # tamanho mínimo de uma região conectada suspeita
     ghost_max_coverage: float = 0.5     # acima disso o sinal vira apenas informativo
 
+    # Copy-move (região duplicada dentro da própria imagem)
+    copy_move_enabled: bool = True
+    copy_move_features: int = 4000
+    copy_move_ratio: float = 0.75          # teste de razão entre 1º e 2º vizinho
+    copy_move_max_hamming: int = 40
+    copy_move_min_shift: float = 40.0      # px; ignora vizinhos imediatos
+    copy_move_min_matches: int = 10
+    copy_move_shift_tolerance: float = 10.0
+    copy_move_min_correlation: float = 0.85
+    copy_move_cell: int = 24               # px; células usadas na verificação célula a célula
+    copy_move_min_cell_agreement: float = 0.8
+    copy_move_min_region_fraction: float = 0.0025   # da área da imagem; ignora glifos isolados
+    copy_move_max_region_fraction: float = 0.25
+
     # Metadados
     known_editors: tuple[str, ...] = (
         "photoshop", "lightroom", "adobe", "gimp", "snapseed", "canva", "pixlr", "picsart", "affinity",

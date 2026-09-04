@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ..config import AnalysisConfig
 from .base import Signal, SignalResult, finding, region_box
+from .copy_move import CopyMoveSignal
 from .duplicates import DuplicateSignal
 from .metadata import MetadataSignal
 from .ocr import OcrSignal
@@ -16,6 +17,7 @@ def default_signals(config: AnalysisConfig | None = None) -> list[Signal]:
         QualitySignal(),
         MetadataSignal(),
         RecompressionSignal(),
+        CopyMoveSignal(),
         DuplicateSignal(),
         OcrSignal(),
     ]
@@ -23,5 +25,5 @@ def default_signals(config: AnalysisConfig | None = None) -> list[Signal]:
 
 __all__ = [
     "Signal", "SignalResult", "finding", "region_box", "default_signals",
-    "QualitySignal", "MetadataSignal", "RecompressionSignal", "DuplicateSignal", "OcrSignal",
+    "QualitySignal", "MetadataSignal", "RecompressionSignal", "CopyMoveSignal", "DuplicateSignal", "OcrSignal",
 ]
