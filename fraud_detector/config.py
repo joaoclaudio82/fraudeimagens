@@ -16,6 +16,8 @@ class AnalysisConfig:
     # Decisão / encaminhamento
     review_threshold: int = 35
     attention_threshold: int = 15
+    scoring_model: str | None = None     # caminho de um modelo JSON treinado (evaluation/train.py)
+    scoring_mode: str = "logistic"       # "logistic" usa só o modelo; "max" usa o maior entre modelo e aditivo
 
     # Qualidade
     blur_warn_variance: float = 80.0

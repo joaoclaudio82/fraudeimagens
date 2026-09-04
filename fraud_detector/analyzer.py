@@ -7,7 +7,7 @@ from typing import Any
 
 from .config import AnalysisConfig
 from .context import ImageContext
-from .scoring import AdditiveScorer
+from .scoring import build_scorer
 from .signals import Signal, SignalResult, default_signals
 from .signals.duplicates import hamming_distance, perceptual_hash  # noqa: F401  (compatibilidade)
 from .signals.recompression import ela_image  # noqa: F401  (compatibilidade)
@@ -36,7 +36,7 @@ def analyze_image(
     scorer: Any = None,
 ) -> dict[str, Any]:
     config = config or AnalysisConfig()
-    scorer = scorer or AdditiveScorer()
+    scorer = scorer or build_scorer(config)
     ctx = ImageContext.from_bytes(data, filename, expected, known_hashes)
     results = run_signals(ctx, config, signals or default_signals(config))
 
@@ -74,6 +74,7 @@ def analyze_image(
         "decision": scored.decision,
         "score_model": scored.model,
         "score_explanation": scored.explanation,
+        "score_details": scored.extra,
         "findings": findings,
         "features": features,
         "signals": details,
