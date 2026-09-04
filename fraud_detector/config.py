@@ -37,6 +37,15 @@ class AnalysisConfig:
     ghost_min_blocks: int = 8           # tamanho mínimo de uma região conectada suspeita
     ghost_max_coverage: float = 0.5     # acima disso o sinal vira apenas informativo
 
+    # Metadados
+    known_editors: tuple[str, ...] = (
+        "photoshop", "lightroom", "adobe", "gimp", "snapseed", "canva", "pixlr", "picsart", "affinity",
+        "paint.net", "photopea", "luminar", "capture one", "vsco", "facetune", "photoscape", "paintshop",
+        "corel", "fotor", "polarr", "photoroom", "meitu", "photodirector", "krita", "inkscape", "pixelmator",
+    )
+    exif_date_tolerance_days: int = 1
+    exif_modified_gap_minutes: int = 10
+
     # Duplicidade
     duplicate_hamming_distance: int = 7
 

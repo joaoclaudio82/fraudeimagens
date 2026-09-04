@@ -20,6 +20,8 @@ TEXT_Y0 = 160
 PAPER_BOX = (100, 100, 1100, 800)
 LINE_INDEX = {"titulo": 0, "pedido": 1, "data": 2, "destinatario": 3, "valor": 4, "codigo": 5}
 SOFTWARE_TAG = 0x0131
+MAKE_TAG = 0x010F
+DATETIME_TAG = 0x0132
 DATETIME_ORIGINAL_TAG = 0x9003
 EXIF_IFD_TAG = 0x8769
 
@@ -140,15 +142,25 @@ def forge_splice(data_a: bytes, data_b: bytes, line: str = "valor", quality: int
 
 
 def with_exif(data: bytes, software: str | None = None, datetime_original: str | None = None,
-              quality: int = 92) -> bytes:
-    """Regrava o JPEG com tags EXIF (Software e/ou DateTimeOriginal no formato 'AAAA:MM:DD HH:MM:SS')."""
+              datetime_modified: str | None = None, make: str | None = None, quality: int = 92,
+              qtables: list[list[int]] | None = None) -> bytes:
+    """Regrava o JPEG com tags EXIF (datas no formato 'AAAA:MM:DD HH:MM:SS') e, opcionalmente, tabelas próprias."""
     image = Image.open(io.BytesIO(data))
     exif = image.getexif()
     if software:
         exif[SOFTWARE_TAG] = software
+    if make:
+        exif[MAKE_TAG] = make
+    if datetime_modified:
+        exif[DATETIME_TAG] = datetime_modified
     if datetime_original:
         exif.get_ifd(EXIF_IFD_TAG)[DATETIME_ORIGINAL_TAG] = datetime_original
-    return jpeg_bytes(image.convert("RGB"), quality, exif=exif.tobytes())
+    buffer = io.BytesIO()
+    kwargs: dict = {"quality": int(quality), "exif": exif.tobytes()}
+    if qtables:
+        kwargs["qtables"] = qtables
+    image.convert("RGB").save(buffer, "JPEG", **kwargs)
+    return buffer.getvalue()
 
 
 def whatsapp_like(data: bytes, quality: int = 70, max_side: int = 1280) -> bytes:
