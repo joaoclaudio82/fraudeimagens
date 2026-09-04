@@ -43,6 +43,12 @@ class AnalysisConfig:
     # OCR
     ocr_languages: str = "por+eng"
     ocr_psm: int = 6
+    ocr_preprocess: bool = True
+    ocr_upscale_min_width: int = 1500   # abaixo disso a imagem é ampliada 2x antes do OCR
+    ocr_max_deskew_degrees: float = 15.0
+    ocr_fuzzy_threshold: int = 85       # similaridade mínima para texto livre (nomes, endereços)
+    ocr_code_threshold: int = 90        # similaridade mínima para códigos e números longos
+    ocr_min_text_chars: int = 5
 
     def with_overrides(self, **overrides: Any) -> "AnalysisConfig":
         return replace(self, **overrides)
