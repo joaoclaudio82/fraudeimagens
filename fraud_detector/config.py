@@ -61,7 +61,8 @@ class AnalysisConfig:
     exif_modified_gap_minutes: int = 10
 
     # Duplicidade
-    duplicate_hamming_distance: int = 7
+    duplicate_hamming_distance: int = 7   # dHash
+    duplicate_dct_distance: int = 16      # pHash DCT de 256 bits: mesma foto reenviada fica <= 6; outra foto >= 26
 
     # OCR
     ocr_languages: str = "por+eng"

@@ -1,27 +1,18 @@
-"""Integridade (SHA-256) e duplicidade aproximada (hash perceptual)."""
+"""Integridade (SHA-256) e duplicidade exata ou aproximada contra um índice de hashes."""
 
 from __future__ import annotations
 
 import hashlib
 
-import numpy as np
-from PIL import Image
-
 from ..config import AnalysisConfig
 from ..context import ImageContext
+from ..hashing import as_index, dhash, hamming_distance, phash
 from .base import SignalResult, finding
 
+# Compatibilidade com o nome usado pela primeira versão da PoC.
+perceptual_hash = dhash
 
-def perceptual_hash(image: Image.Image, size: int = 8) -> str:
-    """dHash: compara pixels vizinhos em uma miniatura em tons de cinza."""
-    gray = image.convert("L").resize((size + 1, size), Image.Resampling.LANCZOS)
-    pixels = np.asarray(gray, dtype=np.int16)
-    bits = pixels[:, 1:] > pixels[:, :-1]
-    return f"{int(''.join('1' if bit else '0' for bit in bits.flat), 2):016x}"
-
-
-def hamming_distance(hash_a: str, hash_b: str) -> int:
-    return (int(hash_a, 16) ^ int(hash_b, 16)).bit_count()
+__all__ = ["DuplicateSignal", "perceptual_hash", "hamming_distance"]
 
 
 class DuplicateSignal:
@@ -30,18 +21,44 @@ class DuplicateSignal:
     def run(self, ctx: ImageContext, config: AnalysisConfig) -> SignalResult:
         result = SignalResult(self.name)
         sha256 = hashlib.sha256(ctx.data).hexdigest()
-        phash = perceptual_hash(ctx.rgb)
+        dhash_hex = dhash(ctx.rgb)
+        phash_hex = phash(ctx.rgb)
         result.features["sha256"] = sha256
-        result.features["perceptual_hash"] = phash
+        result.features["perceptual_hash"] = dhash_hex
+        result.features["phash"] = phash_hex
+        result.features["exact_duplicate"] = False
         result.details["nearest_duplicate"] = None
 
-        known = list(ctx.known_hashes or [])
-        if known:
-            distances = [(candidate, hamming_distance(phash, candidate)) for candidate in known]
-            nearest = min(distances, key=lambda item: item[1])
-            result.details["nearest_duplicate"] = {"hash": nearest[0], "distance": nearest[1]}
-            result.features["nearest_distance"] = nearest[1]
-            if nearest[1] <= config.duplicate_hamming_distance:
-                result.add(finding("near_duplicate", "Imagem igual ou muito semelhante a caso anterior", 35,
-                                   f"Distância perceptual: {nearest[1]}.", "alto"))
+        index = as_index(ctx.known_hashes)
+        if index is None:
+            return result
+
+        exact = index.find_exact(sha256)
+        if exact:
+            first = exact[0]
+            result.features["exact_duplicate"] = True
+            result.details["exact_duplicates"] = exact[:5]
+            reference = first.get("reference") or first.get("filename") or "registro anterior"
+            result.add(finding("exact_duplicate", "Arquivo idêntico já analisado", 45,
+                               f"SHA-256 igual ao de '{reference}' em {first.get('created_at', '?')}.", "alto"))
+
+        nearest = index.find_near(dhash_hex, phash_hex, config.duplicate_hamming_distance, config.duplicate_dct_distance)
+        if nearest is None:
+            return result
+        match = nearest.get("match") or {}
+        result.details["nearest_duplicate"] = {
+            "hash": match.get("dhash"),
+            "distance": nearest["distance"],
+            "dhash_distance": nearest.get("dhash_distance"),
+            "phash_distance": nearest.get("phash_distance"),
+            "reference": match.get("reference"),
+            "filename": match.get("filename"),
+            "created_at": match.get("created_at"),
+        }
+        result.features["nearest_distance"] = nearest["distance"]
+        if nearest.get("within") and not exact:
+            reference = match.get("reference") or match.get("filename") or "caso anterior"
+            result.add(finding("near_duplicate", "Imagem igual ou muito semelhante a caso anterior", 35,
+                               f"Distância perceptual {nearest['distance']} (dHash {nearest.get('dhash_distance')}, "
+                               f"pHash {nearest.get('phash_distance')}) em relação a '{reference}'.", "alto"))
         return result
