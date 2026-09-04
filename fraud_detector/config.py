@@ -27,6 +27,16 @@ class AnalysisConfig:
     ela_warn_mean: float = 7.0
     ela_high_mean: float = 14.0
 
+    # Recompressão localizada (JPEG ghost por bloco)
+    ghost_enabled: bool = True
+    ghost_block: int = 16
+    ghost_qualities: tuple[int, ...] = (50, 55, 60, 65, 70, 75, 80, 85, 90, 95)
+    ghost_min_texture: float = 1.5      # desvio padrão mínimo do bloco para participar
+    ghost_min_dip: float = 0.3          # queda relativa mínima para aceitar que existe um ghost
+    ghost_ratio: float = 0.25           # bloco suspeito: queda menor que esta fração da mediana
+    ghost_min_blocks: int = 8           # tamanho mínimo de uma região conectada suspeita
+    ghost_max_coverage: float = 0.5     # acima disso o sinal vira apenas informativo
+
     # Duplicidade
     duplicate_hamming_distance: int = 7
 
@@ -43,4 +53,9 @@ class AnalysisConfig:
     @classmethod
     def from_dict(cls, values: dict[str, Any] | None) -> "AnalysisConfig":
         known = {item.name for item in fields(cls)}
-        return cls(**{key: value for key, value in (values or {}).items() if key in known})
+        cleaned: dict[str, Any] = {}
+        for key, value in (values or {}).items():
+            if key not in known:
+                continue
+            cleaned[key] = tuple(value) if isinstance(value, list) else value
+        return cls(**cleaned)
