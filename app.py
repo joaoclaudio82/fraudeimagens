@@ -38,23 +38,29 @@ uploaded = st.file_uploader("Envie um comprovante (JPG, JPEG ou PNG)", type=["jp
 if uploaded:
     data = uploaded.getvalue()
     expected = {"pedido": order_id, "data": date, "destinatário": recipient, "código": code}
-    config = AnalysisConfig(blur_warn_variance=float(blur_threshold))
+    # A operação ajusta a sensibilidade da fila pela configuração; a decisão é calculada
+    # em um único lugar (fraud_detector.scoring) e fica registrada no relatório.
+    config = AnalysisConfig(blur_warn_variance=float(blur_threshold), review_threshold=int(review_threshold))
     try:
         result = analyze_image(data, uploaded.name, expected, st.session_state.hashes, config)
     except Exception as exc:
         st.error(f"Não foi possível analisar a imagem: {exc}")
         st.stop()
 
-    # A operação pode ajustar a sensibilidade da fila sem alterar as evidências técnicas.
     score = result["risk_score"]
-    result["decision"] = "REVISAR" if score >= review_threshold else "ATENÇÃO" if score >= 15 else "BAIXO RISCO"
+    ela_render = result.pop("_ela_image")
+    result.pop("_images", None)
 
     left, center, right = st.columns([1.3, 1, 1])
     left.image(data, caption="Imagem recebida", use_container_width=True)
-    center.image(result.pop("_ela_image"), caption="Mapa ELA (áreas claras merecem inspeção)", use_container_width=True)
+    center.image(ela_render, caption="Mapa ELA (áreas claras merecem inspeção)", use_container_width=True)
     right.metric("Score de risco", f"{score}/100")
     right.metric("Encaminhamento", result["decision"])
     right.write(result["disclaimer"])
+
+    if result["signal_errors"]:
+        st.warning("Alguns sinais falharam e foram ignorados: " + ", ".join(
+            f"{name} ({error})" for name, error in result["signal_errors"].items()))
 
     st.subheader("Evidências")
     if result["findings"]:
@@ -72,7 +78,7 @@ if uploaded:
     with tab_meta:
         st.json({"formato": result["format"], "dimensões": result["dimensions"], "exif": result["exif"]})
     with tab_audit:
-        audit_json = json.dumps(result, ensure_ascii=False, indent=2)
+        audit_json = json.dumps(result, ensure_ascii=False, indent=2, default=str)
         st.code(audit_json, language="json")
         st.download_button("Baixar relatório JSON", audit_json,
                            file_name=f"auditoria-{datetime.now():%Y%m%d-%H%M%S}.json",
@@ -90,4 +96,3 @@ if st.session_state.history:
     st.divider()
     st.subheader("Histórico da sessão")
     st.dataframe(pd.DataFrame(st.session_state.history), use_container_width=True, hide_index=True)
-
