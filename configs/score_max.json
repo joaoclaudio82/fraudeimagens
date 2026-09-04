@@ -1,0 +1,6 @@
+{
+  "scoring_model": "models/scoring_logistic.json",
+  "scoring_mode": "max",
+  "review_threshold": 70,
+  "attention_threshold": 40
+}
