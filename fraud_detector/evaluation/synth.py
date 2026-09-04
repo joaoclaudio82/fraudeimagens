@@ -8,7 +8,10 @@ apenas se o score subiu.
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Callable
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -184,3 +187,146 @@ def screenshot_like(data: bytes, screen: tuple[int, int] = (1080, 1920)) -> byte
 
 def blurred(data: bytes, radius: float = 4.0, quality: int = 85) -> bytes:
     return jpeg_bytes(open_rgb(data).filter(ImageFilter.GaussianBlur(radius)), quality)
+
+
+# ---------------------------------------------------------------------------
+# Base rotulada
+# ---------------------------------------------------------------------------
+
+FIRST_NAMES = ["ANA", "BRUNO", "CARLA", "DIEGO", "ELISA", "FABIO", "GISELE", "HUGO", "IARA", "JOAO", "KARLA", "LUCAS"]
+LAST_NAMES = ["SILVA", "SOUZA", "OLIVEIRA", "LIMA", "PEREIRA", "COSTA", "ROCHA", "ALMEIDA", "NUNES", "CARVALHO"]
+INTACT_ORIGINS = ["camera", "camera", "double", "whatsapp", "screenshot", "blur"]
+FORGED_KINDS = ["value_edit", "value_edit", "copy_move", "splice", "editor_exif", "reuse", "date_mismatch"]
+
+
+def random_spec(rng: np.random.Generator, seed: int) -> ReceiptSpec:
+    day = int(rng.integers(1, 28))
+    month = int(rng.integers(1, 12))
+    value = f"R$ {int(rng.integers(1, 9999)):,}".replace(",", ".") + f",{int(rng.integers(0, 99)):02d}"
+    return ReceiptSpec(
+        order_id=str(int(rng.integers(10000, 99999))),
+        date=f"{day:02d}/{month:02d}/2026",
+        recipient=f"{rng.choice(FIRST_NAMES)} {rng.choice(LAST_NAMES)}",
+        value=value,
+        code=f"{rng.choice(list('ABCDEFGH'))}{rng.choice(list('JKLMNP'))}{rng.choice(list('QRSTUV'))}-{int(rng.integers(1000, 9999))}",
+        seed=seed,
+    )
+
+
+def expected_fields(spec: ReceiptSpec) -> dict[str, str]:
+    return {"pedido": spec.order_id, "data": spec.date, "destinatario": spec.recipient,
+            "valor": spec.value, "codigo": spec.code}
+
+
+def _exif_date(spec: ReceiptSpec, hour: int = 10, shift_days: int = 0) -> str:
+    day, month, year = (int(part) for part in spec.date.split("/"))
+    day = max(1, min(28, day + shift_days))
+    return f"{year:04d}:{month:02d}:{day:02d} {hour:02d}:00:00"
+
+
+def camera_like(image: Image.Image, spec: ReceiptSpec, rng: np.random.Generator) -> bytes:
+    """Foto original: EXIF de câmera com firmware em Software e data de captura no dia da entrega."""
+    quality = int(rng.integers(85, 96))
+    firmware = str(rng.choice(["17.5.1", "S918BXXU3CWL1", "HDR+ 1.0.345", "Google"]))
+    make = str(rng.choice(["Apple", "samsung", "Xiaomi", "motorola"]))
+    return with_exif(jpeg_bytes(image, quality), software=firmware, make=make,
+                     datetime_original=_exif_date(spec, int(rng.integers(8, 19))), quality=quality)
+
+
+def make_intact(spec: ReceiptSpec, origin: str, rng: np.random.Generator) -> bytes:
+    image = render_receipt(spec)
+    photo = camera_like(image, spec, rng)
+    if origin == "camera":
+        return photo
+    if origin == "double":
+        return double_compressed(image, int(rng.integers(70, 86)), int(rng.integers(88, 96)))
+    if origin == "whatsapp":
+        return whatsapp_like(photo, quality=int(rng.integers(65, 80)))
+    if origin == "screenshot":
+        return screenshot_like(photo)
+    if origin == "blur":
+        return blurred(photo, radius=float(rng.uniform(2.5, 5.0)))
+    raise ValueError(origin)
+
+
+def make_forged(spec: ReceiptSpec, kind: str, rng: np.random.Generator, donor: ReceiptSpec,
+                previous: bytes | None) -> tuple[bytes, dict[str, Any] | None, dict[str, str]]:
+    """Devolve (bytes, região editada ou None, campos esperados pelo sistema)."""
+    image = render_receipt(spec)
+    base = jpeg_bytes(image, int(rng.integers(72, 90)))
+    expected = expected_fields(spec)
+    out_quality = int(rng.integers(86, 96))
+    if kind == "value_edit":
+        new_value = f"R$ {int(rng.integers(1000, 9999))},{int(rng.integers(0, 99)):02d}"
+        data, region = forge_value_edit(base, new_text=f"VALOR {new_value}", quality=out_quality, seed=spec.seed + 1)
+        return data, region, expected
+    if kind == "copy_move":
+        data, _, target = forge_copy_move(base, quality=out_quality)
+        return data, target, expected
+    if kind == "splice":
+        donor_data = jpeg_bytes(render_receipt(donor), int(rng.integers(60, 80)))
+        data, region = forge_splice(base, donor_data, quality=out_quality)
+        return data, region, expected
+    if kind == "editor_exif":
+        data = with_exif(base, software=str(rng.choice(["Adobe Photoshop 25.0 (Windows)", "GIMP 2.10.34", "Snapseed 2.0"])),
+                         datetime_original=_exif_date(spec, 9), datetime_modified=_exif_date(spec, 14), quality=out_quality)
+        return data, None, expected
+    if kind == "reuse":
+        # Mesma foto de uma entrega anterior, reenviada por WhatsApp para outro pedido.
+        source = previous or camera_like(image, spec, rng)
+        other = random_spec(rng, spec.seed + 7)
+        return whatsapp_like(source, quality=int(rng.integers(65, 80))), None, expected_fields(other)
+    if kind == "date_mismatch":
+        shift = int(rng.choice([-5, -3, -2, 2, 4]))
+        data = with_exif(base, software="17.5.1", make="Apple", datetime_original=_exif_date(spec, 11, shift), quality=out_quality)
+        return data, None, expected
+    raise ValueError(kind)
+
+
+def generate_dataset(out_dir: str | Path, n_intact: int = 30, n_forged: int = 30, seed: int = 0,
+                     whatsapp_fraction: float = 0.3,
+                     progress: Callable[[int, int], None] | None = None) -> list[dict[str, Any]]:
+    """Gera imagens + labels.jsonl. Cada item registra rótulo, tipo, origem, região editada e campos esperados."""
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(seed)
+    items: list[dict[str, Any]] = []
+    total = n_intact + n_forged
+    previous_photo: bytes | None = None
+
+    for index in range(n_intact):
+        spec = random_spec(rng, seed * 1000 + index)
+        origin = INTACT_ORIGINS[index % len(INTACT_ORIGINS)]
+        data = make_intact(spec, origin, rng)
+        if origin == "camera":
+            previous_photo = data
+        name = f"{index:04d}_intact_{origin}.{'png' if origin == 'screenshot' else 'jpg'}"
+        (out / name).write_bytes(data)
+        items.append({"file": name, "label": 0, "kind": "intact", "origin": origin, "region": None,
+                      "expected": expected_fields(spec), "spec": asdict(spec)})
+        if progress:
+            progress(len(items), total)
+
+    for index in range(n_forged):
+        spec = random_spec(rng, seed * 1000 + 500 + index)
+        donor = random_spec(rng, seed * 1000 + 700 + index)
+        kind = FORGED_KINDS[index % len(FORGED_KINDS)]
+        data, region, expected = make_forged(spec, kind, rng, donor, previous_photo)
+        origin = "direct"
+        if kind not in ("reuse",) and rng.random() < whatsapp_fraction:
+            data = whatsapp_like(data, quality=int(rng.integers(65, 80)))
+            origin = "whatsapp"
+            if region:
+                scale = 1280 / 1200
+                region = {k: int(round(v * scale)) for k, v in region.items()}
+        name = f"{n_intact + index:04d}_forged_{kind}_{origin}.jpg"
+        (out / name).write_bytes(data)
+        items.append({"file": name, "label": 1, "kind": kind, "origin": origin, "region": region,
+                      "expected": expected, "spec": asdict(spec)})
+        if progress:
+            progress(len(items), total)
+
+    with (out / "labels.jsonl").open("w", encoding="utf-8") as handle:
+        for item in items:
+            handle.write(json.dumps(item, ensure_ascii=False) + "\n")
+    return items

@@ -7,3 +7,6 @@ __pycache__/
 
 # Pacote original da PoC (fonte já versionada no repositório)
 *.zip
+
+# Bases sintéticas e resultados de avaliação gerados localmente
+data/
