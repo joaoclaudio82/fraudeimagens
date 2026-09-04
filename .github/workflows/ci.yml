@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Instala Tesseract (por/eng) e libs do OpenCV
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-por tesseract-ocr-eng libgl1 libglib2.0-0
+      - name: Instala dependências
+        run: pip install -r requirements-dev.txt
+      - name: Testes
+        run: pytest -q
+      - name: Fumaça do harness (base sintética pequena)
+        run: |
+          python scripts/generate_dataset.py --out /tmp/synth --intact 6 --forged 7 --seed 1
+          python scripts/evaluate.py --dataset /tmp/synth --json /tmp/report.json --results /tmp/results.jsonl --title "CI"
+          python scripts/train_scoring.py --results /tmp/results.jsonl --out /tmp/model.json --holdout 0.0
