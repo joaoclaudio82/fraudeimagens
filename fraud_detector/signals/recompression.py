@@ -47,6 +47,7 @@ class GhostAnalysis:
     ghost_quality: int | None = None
     last_quality: int | None = None
     median_dip: float = 0.0
+    threshold: float = 0.0
     coverage: float = 0.0
     regions: list[dict[str, int]] = field(default_factory=list)
     dip_map: np.ndarray | None = None
@@ -61,6 +62,7 @@ class GhostAnalysis:
             "ghost_quality": self.ghost_quality,
             "last_quality": self.last_quality,
             "median_dip": round(float(self.median_dip), 4),
+            "threshold": round(float(self.threshold), 4),
             "coverage": round(float(self.coverage), 4),
             "regions": self.regions,
             "block": self.block,
@@ -102,7 +104,10 @@ def jpeg_ghost(rgb: Image.Image, gray: np.ndarray, config: AnalysisConfig,
         return GhostAnalysis(applicable=False, block=block, note="imagem pequena demais ou qualidades insuficientes")
 
     errors = recompression_errors(rgb, qualities, block)
-    textured = _block_std(gray, block) >= config.ghost_min_texture
+    std = _block_std(gray, block)
+    # Blocos planos não têm erro para medir; blocos de contraste altíssimo (bordas do papel,
+    # texto, assinatura) têm erro dominado por ringing e não exibem o ghost mesmo íntegros.
+    textured = (std >= config.ghost_min_texture) & (std <= config.ghost_max_texture)
     analysis = GhostAnalysis(applicable=True, block=block, last_quality=last_quality, textured=textured)
     if textured.sum() < config.ghost_min_blocks * 4:
         analysis.note = "textura insuficiente para estimar o histórico de compressão"
@@ -135,7 +140,13 @@ def jpeg_ghost(rgb: Image.Image, gray: np.ndarray, config: AnalysisConfig,
         analysis.note = "nenhum histórico de compressão anterior detectável"
         return analysis
 
-    suspicious = textured & (dip < config.ghost_ratio * median_dip)
+    # Limiar robusto: abaixo de uma fração da mediana E fora da dispersão normal (MAD) dos blocos.
+    # Um ghost fraco e ruidoso tem dispersão grande e não produz suspeitos; uma edição real tem
+    # queda ~0 em um ghost forte e bem definido.
+    mad = float(np.median(np.abs(dip[textured] - median_dip)))
+    threshold = min(config.ghost_ratio * median_dip, median_dip - config.ghost_mad_k * 1.4826 * mad)
+    analysis.threshold = threshold
+    suspicious = textured & (dip < threshold)
     analysis.suspicious = suspicious
     analysis.coverage = float(suspicious.sum() / max(1, textured.sum()))
 
@@ -143,7 +154,8 @@ def jpeg_ghost(rgb: Image.Image, gray: np.ndarray, config: AnalysisConfig,
     regions = []
     for label in range(1, count):
         x, y, w, h, area = (int(v) for v in stats[label])
-        if area >= config.ghost_min_blocks:
+        fill = area / float(w * h)
+        if area >= config.ghost_min_blocks and fill >= config.ghost_min_fill:
             regions.append((area, region_box(x * block, y * block, w * block, h * block)))
     regions.sort(key=lambda item: -item[0])
     analysis.regions = [box for _, box in regions[:5]]

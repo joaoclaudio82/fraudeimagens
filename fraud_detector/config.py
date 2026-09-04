@@ -34,9 +34,12 @@ class AnalysisConfig:
     ghost_block: int = 16
     ghost_qualities: tuple[int, ...] = (50, 55, 60, 65, 70, 75, 80, 85, 90, 95)
     ghost_min_texture: float = 1.5      # desvio padrão mínimo do bloco para participar
-    ghost_min_dip: float = 0.3          # queda relativa mínima para aceitar que existe um ghost
-    ghost_ratio: float = 0.25           # bloco suspeito: queda menor que esta fração da mediana
-    ghost_min_blocks: int = 8           # tamanho mínimo de uma região conectada suspeita
+    ghost_max_texture: float = 40.0     # acima disso (bordas, texto) o erro JPEG é ringing e não mostra o ghost
+    ghost_min_dip: float = 0.8          # queda relativa mínima para aceitar que existe um ghost (calibrado no harness)
+    ghost_ratio: float = 0.25           # bloco suspeito: queda menor que esta fração da mediana...
+    ghost_mad_k: float = 1.0            # ...e abaixo de mediana - k × MAD; k=3 derrubava o recall de 0.48 para 0.30
+    ghost_min_blocks: int = 12          # tamanho mínimo de uma região conectada suspeita
+    ghost_min_fill: float = 0.5         # área da região / área da caixa: descarta cadeias esparsas de ruído
     ghost_max_coverage: float = 0.5     # acima disso o sinal vira apenas informativo
 
     # Copy-move (região duplicada dentro da própria imagem)
@@ -74,7 +77,7 @@ class AnalysisConfig:
 
     # Duplicidade
     duplicate_hamming_distance: int = 7   # dHash
-    duplicate_dct_distance: int = 16      # pHash DCT de 256 bits: mesma foto reenviada fica <= 6; outra foto >= 26
+    duplicate_dct_distance: int = 8       # pHash DCT de 256 bits: mesma foto reenviada fica <= 4-6; no harness, outra foto do mesmo modelo chega a 12
 
     # OCR
     ocr_languages: str = "por+eng"

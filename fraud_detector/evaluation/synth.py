@@ -201,7 +201,7 @@ FORGED_KINDS = ["value_edit", "value_edit", "copy_move", "splice", "editor_exif"
 
 def random_spec(rng: np.random.Generator, seed: int) -> ReceiptSpec:
     day = int(rng.integers(1, 28))
-    month = int(rng.integers(1, 12))
+    month = int(rng.integers(1, 9))  # datas de 2026 anteriores à geração, para não parecerem "no futuro"
     value = f"R$ {int(rng.integers(1, 9999)):,}".replace(",", ".") + f",{int(rng.integers(0, 99)):02d}"
     return ReceiptSpec(
         order_id=str(int(rng.integers(10000, 99999))),
@@ -233,13 +233,24 @@ def camera_like(image: Image.Image, spec: ReceiptSpec, rng: np.random.Generator)
                      datetime_original=_exif_date(spec, int(rng.integers(8, 19))), quality=quality)
 
 
+def keep_camera_exif(data: bytes, spec: ReceiptSpec, rng: np.random.Generator, quality: int) -> bytes:
+    """Regrava mantendo EXIF de câmera, como fazem galerias e editores que preservam metadados."""
+    firmware = str(rng.choice(["17.5.1", "S918BXXU3CWL1", "HDR+ 1.0.345", "Google"]))
+    make = str(rng.choice(["Apple", "samsung", "Xiaomi", "motorola"]))
+    return with_exif(data, software=firmware, make=make, datetime_original=_exif_date(spec, int(rng.integers(8, 19))),
+                     quality=quality)
+
+
 def make_intact(spec: ReceiptSpec, origin: str, rng: np.random.Generator) -> bytes:
     image = render_receipt(spec)
     photo = camera_like(image, spec, rng)
     if origin == "camera":
         return photo
     if origin == "double":
-        return double_compressed(image, int(rng.integers(70, 86)), int(rng.integers(88, 96)))
+        second = int(rng.integers(88, 96))
+        data = double_compressed(image, int(rng.integers(70, 86)), second)
+        # Metade das recompressões mantém o EXIF (galeria/app que preserva metadados), metade perde.
+        return keep_camera_exif(data, spec, rng, second) if rng.random() < 0.5 else data
     if origin == "whatsapp":
         return whatsapp_like(photo, quality=int(rng.integers(65, 80)))
     if origin == "screenshot":
@@ -256,17 +267,20 @@ def make_forged(spec: ReceiptSpec, kind: str, rng: np.random.Generator, donor: R
     base = jpeg_bytes(image, int(rng.integers(72, 90)))
     expected = expected_fields(spec)
     out_quality = int(rng.integers(86, 96))
+    # Editores costumam preservar o EXIF original: metade das forjarias de pixel mantém os metadados
+    # de câmera, para que "sem EXIF" não vire um atalho artificial para o rótulo.
+    keep_exif = rng.random() < 0.5
     if kind == "value_edit":
         new_value = f"R$ {int(rng.integers(1000, 9999))},{int(rng.integers(0, 99)):02d}"
         data, region = forge_value_edit(base, new_text=f"VALOR {new_value}", quality=out_quality, seed=spec.seed + 1)
-        return data, region, expected
+        return (keep_camera_exif(data, spec, rng, out_quality) if keep_exif else data), region, expected
     if kind == "copy_move":
         data, _, target = forge_copy_move(base, quality=out_quality)
-        return data, target, expected
+        return (keep_camera_exif(data, spec, rng, out_quality) if keep_exif else data), target, expected
     if kind == "splice":
         donor_data = jpeg_bytes(render_receipt(donor), int(rng.integers(60, 80)))
         data, region = forge_splice(base, donor_data, quality=out_quality)
-        return data, region, expected
+        return (keep_camera_exif(data, spec, rng, out_quality) if keep_exif else data), region, expected
     if kind == "editor_exif":
         data = with_exif(base, software=str(rng.choice(["Adobe Photoshop 25.0 (Windows)", "GIMP 2.10.34", "Snapseed 2.0"])),
                          datetime_original=_exif_date(spec, 9), datetime_modified=_exif_date(spec, 14), quality=out_quality)
