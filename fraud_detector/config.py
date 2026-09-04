@@ -53,6 +53,16 @@ class AnalysisConfig:
     copy_move_min_region_fraction: float = 0.0025   # da área da imagem; ignora glifos isolados
     copy_move_max_region_fraction: float = 0.25
 
+    # Plugins (fase 4): detector profundo e modelo de visão
+    deep_model: str | None = None        # "pacote.modulo:funcao" que devolve DeepPrediction (ou IMAGEGUARD_DEEP_MODEL)
+    deep_mask_threshold: float = 0.5
+    deep_warn_threshold: float = 0.5
+    deep_high_threshold: float = 0.8
+    vlm_enabled: bool = False            # envia a imagem para a API da Anthropic: avaliar LGPD e custo antes de ligar
+    vlm_model: str = "claude-opus-5"
+    vlm_max_tokens: int = 2000
+    vlm_require_signature: bool = False
+
     # Metadados
     known_editors: tuple[str, ...] = (
         "photoshop", "lightroom", "adobe", "gimp", "snapseed", "canva", "pixlr", "picsart", "affinity",

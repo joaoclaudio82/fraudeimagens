@@ -1,0 +1,10 @@
+# Dependências dos plugins opcionais (fase 4). Instale só o que for usar.
+
+# Extração e checagem semântica com modelo de visão (fraud_detector/signals/vlm.py).
+# Requer credencial da Anthropic no ambiente e avaliação de LGPD: a imagem sai do ambiente.
+anthropic>=1.0,<2
+
+# Detectores profundos de manipulação (fraud_detector/signals/deep.py) exigem o código e os
+# pesos de cada modelo (TruFor, CAT-Net, MVSS-Net...), normalmente com PyTorch:
+# torch>=2.2
+# torchvision>=0.17
