@@ -15,15 +15,17 @@ from __future__ import annotations
 import base64
 import io
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from . import ANALYSIS_VERSION, AnalysisConfig, analyze_image
-from .storage import REVIEW_STATUSES, AnalysisStore
+from .context import ImageLimitError
+from .storage import DECISION_ORDER, REVIEW_STATUSES, AnalysisStore
 
 EXPECTED_FIELDS = ("pedido", "data", "destinatario", "valor", "codigo")
 
@@ -37,7 +39,9 @@ class ReviewRequest(BaseModel):
 def config_from_env() -> AnalysisConfig:
     model = os.environ.get("IMAGEGUARD_SCORING_MODEL") or None
     mode = os.environ.get("IMAGEGUARD_SCORING_MODE", "max")
-    return AnalysisConfig(scoring_model=model, scoring_mode=mode)
+    return AnalysisConfig(scoring_model=model, scoring_mode=mode,
+                          max_upload_bytes=int(os.environ.get("IMAGEGUARD_MAX_UPLOAD_BYTES", str(20 * 1024 * 1024))),
+                          max_image_pixels=int(os.environ.get("IMAGEGUARD_MAX_IMAGE_PIXELS", "20000000")))
 
 
 def store_from_env() -> AnalysisStore:
@@ -95,13 +99,32 @@ def create_app(store: AnalysisStore | None = None, config: AnalysisConfig | None
         persist: bool = Form(True, description="guardar a análise e os hashes para comparações futuras"),
         include_images: bool = Form(False, description="devolver ELA, ghost e copy-move em PNG base64"),
     ) -> dict[str, Any]:
-        payload = await file.read()
+        cfg = get_config()
+        try:
+            payload = await file.read(cfg.max_upload_bytes + 1)
+        finally:
+            await file.close()
+        if len(payload) > cfg.max_upload_bytes:
+            raise HTTPException(413, "arquivo excede o limite de bytes")
         if not payload:
             raise HTTPException(400, "arquivo vazio")
         fields: dict[str, str] = {}
         if expected:
             try:
-                fields.update({k: str(v) for k, v in json.loads(expected).items() if v})
+                values = json.loads(expected)
+                if not isinstance(values, dict):
+                    raise ValueError("esperado um objeto JSON")
+                for key, value in values.items():
+                    if key not in EXPECTED_FIELDS:
+                        raise ValueError(f"campo desconhecido: {key}")
+                    if value is None:
+                        continue
+                    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+                        raise ValueError(f"valor inválido para {key}")
+                    if isinstance(value, float) and not math.isfinite(value):
+                        raise ValueError(f"valor não finito para {key}")
+                    if str(value).strip():
+                        fields[key] = str(value)
             except (ValueError, AttributeError) as exc:
                 raise HTTPException(400, f"expected inválido: {exc}") from exc
         for name, value in zip(EXPECTED_FIELDS, (pedido, data, destinatario, valor, codigo)):
@@ -109,7 +132,9 @@ def create_app(store: AnalysisStore | None = None, config: AnalysisConfig | None
                 fields[name] = value
         storage = get_store()
         try:
-            report = analyze_image(payload, file.filename or "upload", fields, storage.hashes, get_config())
+            report = analyze_image(payload, file.filename or "upload", fields, storage.hashes, cfg)
+        except ImageLimitError as exc:
+            raise HTTPException(413, str(exc)) from exc
         except Exception as exc:
             raise HTTPException(422, f"não foi possível analisar a imagem: {type(exc).__name__}: {exc}") from exc
         images = report.pop("_images", {})
@@ -121,7 +146,9 @@ def create_app(store: AnalysisStore | None = None, config: AnalysisConfig | None
         return report
 
     @app.get("/analyses")
-    def list_analyses(limit: int = 50, decision: str | None = None, reference: str | None = None) -> list[dict[str, Any]]:
+    def list_analyses(limit: int = Query(50, ge=1, le=500), decision: str | None = None, reference: str | None = None) -> list[dict[str, Any]]:
+        if decision is not None and decision not in DECISION_ORDER:
+            raise HTTPException(422, "decision inválida")
         return get_store().list(limit=limit, decision=decision, reference=reference)
 
     @app.get("/analyses/{analysis_id}")
@@ -132,7 +159,9 @@ def create_app(store: AnalysisStore | None = None, config: AnalysisConfig | None
         return item
 
     @app.get("/review-queue")
-    def review_queue(limit: int = 50, min_decision: str = "ATENÇÃO") -> list[dict[str, Any]]:
+    def review_queue(limit: int = Query(50, ge=1, le=500), min_decision: str = "ATENÇÃO") -> list[dict[str, Any]]:
+        if min_decision not in DECISION_ORDER:
+            raise HTTPException(422, "min_decision inválida")
         return get_store().queue(limit=limit, min_decision=min_decision)
 
     @app.post("/analyses/{analysis_id}/review")

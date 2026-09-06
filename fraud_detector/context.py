@@ -10,6 +10,12 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from .config import AnalysisConfig
+
+
+class ImageLimitError(ValueError):
+    """Arquivo ou imagem excede os limites configurados."""
+
 
 @dataclass
 class ImageContext:
@@ -44,8 +50,18 @@ class ImageContext:
         filename: str = "image",
         expected: dict[str, str] | None = None,
         known_hashes: Any = None,
+        config: AnalysisConfig | None = None,
     ) -> "ImageContext":
-        image = Image.open(io.BytesIO(data))
+        config = config or AnalysisConfig()
+        if len(data) > config.max_upload_bytes:
+            raise ImageLimitError("arquivo excede o limite de bytes")
+        try:
+            image = Image.open(io.BytesIO(data))
+        except Image.DecompressionBombError as exc:
+            raise ImageLimitError("imagem excede o limite seguro de pixels") from exc
+        if image.width * image.height > config.max_image_pixels:
+            image.close()
+            raise ImageLimitError("imagem excede o limite de pixels")
         image.load()
         rgb = image.convert("RGB")
         np_rgb = np.asarray(rgb)

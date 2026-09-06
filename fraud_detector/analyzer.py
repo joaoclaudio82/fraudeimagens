@@ -37,7 +37,7 @@ def analyze_image(
 ) -> dict[str, Any]:
     config = config or AnalysisConfig()
     scorer = scorer or build_scorer(config)
-    ctx = ImageContext.from_bytes(data, filename, expected, known_hashes)
+    ctx = ImageContext.from_bytes(data, filename, expected, known_hashes, config)
     results = run_signals(ctx, config, signals or default_signals(config))
 
     findings: list[dict[str, Any]] = []

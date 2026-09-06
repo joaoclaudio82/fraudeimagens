@@ -19,6 +19,10 @@ class AnalysisConfig:
     scoring_model: str | None = None     # caminho de um modelo JSON treinado (evaluation/train.py)
     scoring_mode: str = "logistic"       # "logistic" usa só o modelo; "max" usa o maior entre modelo e aditivo
 
+    # Limites antes da decodificação (bytes comprimidos e pixels).
+    max_upload_bytes: int = 20 * 1024 * 1024
+    max_image_pixels: int = 20_000_000
+
     # Qualidade
     blur_warn_variance: float = 80.0
     min_width: int = 700
@@ -94,6 +98,12 @@ class AnalysisConfig:
     typography_min_conf: float = 60.0
     typography_height_tolerance: float = 0.3      # desvio relativo de altura na mesma linha
     typography_baseline_tolerance: float = 0.35   # desvio da linha de base, em alturas de linha
+
+    def __post_init__(self) -> None:
+        for name in ("max_upload_bytes", "max_image_pixels"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{name} deve ser um inteiro positivo")
 
     def with_overrides(self, **overrides: Any) -> "AnalysisConfig":
         return replace(self, **overrides)
