@@ -146,15 +146,20 @@ class AnalysisStore:
 
     def queue(self, limit: int = 50, min_decision: str = "ATENÇÃO") -> list[dict[str, Any]]:
         """Análises pendentes de revisão, das mais arriscadas para as menos."""
+        if limit <= 0:
+            return []
+        if min_decision not in DECISION_ORDER:
+            raise ValueError(f"decisão inválida: {min_decision}")
+        floor = DECISION_ORDER[min_decision]
+        decisions = [name for name, rank in DECISION_ORDER.items() if rank >= floor]
+        marks = ",".join("?" for _ in decisions)
         rows = self._conn.execute(
             "SELECT a.id, a.created_at, a.filename, a.reference, a.score, a.decision, a.model, a.report_json "
             "FROM analyses a JOIN reviews r ON r.analysis_id = a.id WHERE r.status = 'pending' "
-            "ORDER BY a.score DESC, a.id ASC").fetchall()
-        floor = DECISION_ORDER.get(min_decision, 0)
+            f"AND a.decision IN ({marks}) ORDER BY a.score DESC, a.id ASC LIMIT ?",
+            (*decisions, limit)).fetchall()
         items = []
         for row in rows:
-            if DECISION_ORDER.get(row["decision"], 0) < floor:
-                continue
             report = json.loads(row["report_json"])
             items.append({
                 "id": row["id"], "created_at": row["created_at"], "filename": row["filename"],
@@ -162,8 +167,6 @@ class AnalysisStore:
                 "findings": [{"code": f["code"], "label": f["label"], "points": f["points"], "severity": f["severity"]}
                              for f in report.get("findings", [])],
             })
-            if len(items) >= limit:
-                break
         return items
 
     def labeled_rows(self) -> list[dict[str, Any]]:

@@ -205,3 +205,15 @@ models/                      modelo de score treinado (ver models/README.md)
 docs/                        relatórios de avaliação
 tests/                       pytest (conftest com Tesseract falso)
 ```
+
+### Limites de entrada e evolução
+
+A análise aceita, por padrão, arquivos de até **20 MiB** e imagens de até
+**20 milhões de pixels**. Na API, ajuste `IMAGEGUARD_MAX_UPLOAD_BYTES` e
+`IMAGEGUARD_MAX_IMAGE_PIXELS`; no Python/CLI, use os campos correspondentes de
+`AnalysisConfig`. Entradas acima dos limites retornam HTTP 413 na API.
+
+O JSON `expected` aceita apenas os campos documentados, com valores textuais ou
+numéricos finitos. As consultas de análises e da fila aceitam `limit` entre 1 e 500.
+Veja [melhorias implementadas e próximas evoluções](docs/evolucoes.md), incluindo
+compatibilidade, limites operacionais e critérios para as próximas entregas.

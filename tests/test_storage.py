@@ -83,3 +83,21 @@ def test_strip_report_keeps_serializable_fields(receipt_bytes):
     report = analyze_image(receipt_bytes, "a.jpg")
     cleaned = strip_report(report)
     assert "_images" not in cleaned and "_ela_image" not in cleaned and cleaned["findings"] == report["findings"]
+
+
+def test_queue_filters_before_limit_and_preserves_tie_order():
+    store = AnalysisStore()
+    def save(score, decision):
+        return store.save({'risk_score': score, 'decision': decision}, register_hashes=False)
+    save(99, 'BAIXO RISCO')
+    first = save(80, 'REVISAR')
+    second = save(80, 'REVISAR')
+    reviewed = save(90, 'REVISAR')
+    store.review(reviewed, 'legitimate')
+    assert [row['id'] for row in store.queue(limit=1)] == [first]
+    assert [row['id'] for row in store.queue(limit=2)] == [first, second]
+    assert store.queue(limit=0) == []
+    assert store.queue(limit=-1) == []
+    with pytest.raises(ValueError):
+        store.queue(min_decision='typo')
+    store.close()
