@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 
 from . import ANALYSIS_VERSION, AnalysisConfig, analyze_image
 from .context import ImageLimitError
-from .storage import DECISION_ORDER, REVIEW_STATUSES, AnalysisStore
+from .storage import DECISION_ORDER, REVIEW_STATUSES, AnalysisStore, ReviewConflict
 
 EXPECTED_FIELDS = ("pedido", "data", "destinatario", "valor", "codigo")
 
@@ -34,6 +34,7 @@ class ReviewRequest(BaseModel):
     status: str = Field(description="confirmed_fraud | legitimate | inconclusive | pending")
     reviewer: str = ""
     note: str = ""
+    expected_version: int | None = Field(default=None, ge=0, strict=True)
 
 
 def config_from_env() -> AnalysisConfig:
@@ -169,10 +170,20 @@ def create_app(store: AnalysisStore | None = None, config: AnalysisConfig | None
         if body.status not in REVIEW_STATUSES:
             raise HTTPException(400, f"status deve ser um de {REVIEW_STATUSES}")
         try:
-            get_store().review(analysis_id, body.status, body.reviewer, body.note)
+            get_store().review(analysis_id, body.status, body.reviewer, body.note, body.expected_version)
+        except ReviewConflict as exc:
+            raise HTTPException(409, str(exc)) from exc
         except KeyError:
             raise HTTPException(404, "análise não encontrada") from None
         return {"analysis_id": analysis_id, "status": body.status}
+
+    @app.get("/analyses/{analysis_id}/reviews")
+    def review_history(analysis_id: int, limit: int = Query(50, ge=1, le=500),
+                       after_version: int = Query(0, ge=0)) -> list[dict[str, Any]]:
+        try:
+            return get_store().review_history(analysis_id, limit, after_version)
+        except KeyError:
+            raise HTTPException(404, "análise não encontrada") from None
 
     @app.get("/export/labels")
     def export_labels() -> list[dict[str, Any]]:
