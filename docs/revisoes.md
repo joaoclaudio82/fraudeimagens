@@ -63,8 +63,9 @@ o comportamento anterior e precisa de uma política própria.
   `AnalysisStore` compartilhada entre threads.
 - O histórico é acrescentado pelo fluxo da aplicação, sem edição de eventos.
   Não é uma trilha inviolável: acesso direto ao SQLite pode alterá-lo.
-- O campo `reviewer` é declarado pelo cliente, não uma identidade autenticada.
-  Autenticação e autorização por perfil continuam pendentes.
+- Na API protegida, `reviewer` vem da credencial e o evento recebe
+  `reviewer_authenticated=1`. Eventos legados, modo local e chamadas diretas
+  mantêm zero. Consulte [autenticação e limites](autenticacao.md).
 - Não foram alterados sinais, pesos ou modelos de detecção; esta entrega não
   mede nem demonstra aumento de precisão na identificação de fraude.
 

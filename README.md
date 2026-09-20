@@ -1,3 +1,8 @@
+> **Autenticação:** a API exige credenciais por padrão. Configure
+> `IMAGEGUARD_AUTH_FILE` conforme [este guia](docs/autenticacao.md).
+> A interface Streamlit requer modo local explícito (`IMAGEGUARD_AUTH_MODE=disabled`).
+> O contêiner inicia a API na porta 8000. Estatísticas estão em `/stats`.
+
 # ImageGuard
 
 Triagem explicável de risco em imagens de comprovantes de entrega. Combina sinais forenses de imagem
@@ -55,7 +60,7 @@ Plugins opcionais: `pip install -r requirements-optional.txt` (SDK da Anthropic 
 ### Interface
 
 ```bash
-streamlit run app.py
+IMAGEGUARD_AUTH_MODE=disabled streamlit run app.py --server.address=127.0.0.1
 ```
 
 Mostra a imagem com as regiões apontadas, o mapa ELA, o overlay do JPEG ghost e o do copy-move,
@@ -74,9 +79,13 @@ python -m fraud_detector.cli purge --db data/imageguard.sqlite   # remove análi
 
 ### API
 
+Provisione a credencial conforme [o guia](docs/autenticacao.md) e carregue seu token
+em `IMAGEGUARD_TOKEN` no ambiente do cliente.
+
 ```bash
-python -m fraud_detector.cli serve --port 8000      # ou: uvicorn fraud_detector.api:app
-curl -F "file=@comprovante.jpg" -F 'expected={"pedido":"12345","valor":"R$ 1.250,00"}' \
+export IMAGEGUARD_AUTH_FILE="$HOME/imageguard-credentials.json"
+python -m fraud_detector.cli serve --host 127.0.0.1 --port 8000
+curl -H "Authorization: Bearer $IMAGEGUARD_TOKEN" -F "file=@comprovante.jpg" -F 'expected={"pedido":"12345","valor":"R$ 1.250,00"}' \
      -F "reference=PED-12345" http://localhost:8000/analyze
 ```
 
@@ -87,7 +96,8 @@ curl -F "file=@comprovante.jpg" -F 'expected={"pedido":"12345","valor":"R$ 1.250
 | `GET /review-queue` | Pendentes de revisão, das mais arriscadas para as menos |
 | `POST /analyses/{id}/review` | Registra `confirmed_fraud`, `legitimate` ou `inconclusive`, com revisor e justificativa |
 | `GET /export/labels` | Decisões humanas no formato de treino do score |
-| `POST /maintenance/purge`, `GET /health` | Retenção e estado (inclui taxa de reversão: quanto do que foi mandado revisar era legítimo) |
+| `POST /maintenance/purge`, `GET /stats` | Retenção (admin) e estatísticas (reviewer/admin) |
+| `GET /health` | Estado mínimo público do processo |
 
 Variáveis de ambiente: `IMAGEGUARD_DB`, `IMAGEGUARD_RETENTION_DAYS`, `IMAGEGUARD_STORE_OCR_TEXT`,
 `IMAGEGUARD_SCORING_MODEL`, `IMAGEGUARD_SCORING_MODE`, `IMAGEGUARD_DEEP_MODEL`.
@@ -96,8 +106,9 @@ Variáveis de ambiente: `IMAGEGUARD_DB`, `IMAGEGUARD_RETENTION_DAYS`, `IMAGEGUAR
 
 ```bash
 docker build -t imageguard .
-docker run -p 8501:8501 -v imageguard-data:/data imageguard                       # interface
-docker run -p 8000:8000 -v imageguard-data:/data imageguard python -m fraud_detector.cli serve
+docker run -p 127.0.0.1:8000:8000 -v imageguard-data:/data \
+  -v "$HOME/imageguard-credentials.json:/run/secrets/imageguard.json:ro" \
+  -e IMAGEGUARD_AUTH_FILE=/run/secrets/imageguard.json imageguard
 ```
 
 ## Avaliação e calibração

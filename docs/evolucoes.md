@@ -35,6 +35,13 @@ A ordem permanece score decrescente e, no empate, análise mais antiga primeiro.
 Somente análises pendentes participam. O método de armazenamento devolve uma
 lista vazia para limite não positivo; a API rejeita esse parâmetro.
 
+### Autenticação por perfil
+
+Implementados Bearer por identidade, permissões por operação e autoria vinculada
+à credencial. A API bloqueia operações sem configuração válida. A interface com
+acesso direto ao banco fica restrita ao modo local explícito. Veja o
+[guia de configuração e limites](autenticacao.md).
+
 ### Histórico de pareceres e concorrência
 
 Implementados eventos por versão, migração do último parecer legado, consulta
@@ -45,7 +52,7 @@ transacional dos eventos. Consulte [contrato e limites](revisoes.md).
 
 | Prioridade | Evolução | Critério de conclusão |
 | --- | --- | --- |
-| 1 | Autenticação e autorização por perfil na API | Operador, revisor e administrador acessam apenas suas operações; exportação e expurgo exigem permissão explícita. |
+| 1 | Login e integração da interface com a API protegida | A API já tem credenciais por identidade e perfis; integrar a interface, expiração/OIDC e, se necessário, isolamento por organização. |
 | 2 | Autoria autenticada e proteção externa da trilha de revisão | Associar eventos à identidade autenticada e definir proteção contra alterações diretas no banco; o histórico transacional já foi implementado. |
 | 3 | Execução em workers com fila e timeout | Upload retorna um identificador; consulta acompanha estado; tarefa demorada não bloqueia o atendimento HTTP; persistência tem estratégia de concorrência. |
 | 4 | Base real revisada e avaliação por origem | Separar treino e teste por documento/origem, medir precisão, recall e falsos positivos por tipo de fraude; comparar com a base sintética. |

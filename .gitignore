@@ -10,3 +10,8 @@ __pycache__/
 
 # Bases sintéticas e resultados de avaliação gerados localmente
 data/
+
+# Credenciais locais (o registro deve ficar fora do checkout)
+.env
+.env.*
+*credentials*.json

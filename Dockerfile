@@ -15,8 +15,8 @@ ENV IMAGEGUARD_DB=/data/imageguard.sqlite \
     IMAGEGUARD_STORE_OCR_TEXT=0
 VOLUME ["/data"]
 
-# 8501: interface Streamlit (padrão). 8000: API HTTP, ex.:
-#   docker run -p 8000:8000 imageguard python -m fraud_detector.cli serve --port 8000
-EXPOSE 8501 8000
-HEALTHCHECK CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"
-CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0"]
+# API protegida por padrão. Monte o registro de credenciais somente para leitura
+# e informe IMAGEGUARD_AUTH_FILE; sem ele, operações de negócio retornam 503.
+EXPOSE 8000
+HEALTHCHECK CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+CMD ["python", "-m", "fraud_detector.cli", "serve", "--port", "8000"]
