@@ -117,6 +117,10 @@ class AnalysisStore:
                     UNIQUE(analysis_id, version)
                 )
             """)
+            history_columns = {row[1] for row in self._conn.execute("PRAGMA table_info(review_history)")}
+            if "reviewer_authenticated" not in history_columns:
+                self._conn.execute(
+                    "ALTER TABLE review_history ADD COLUMN reviewer_authenticated INTEGER NOT NULL DEFAULT 0")
             self._conn.execute("UPDATE reviews SET version = 1 WHERE reviewed_at IS NOT NULL AND version = 0")
             self._conn.execute("""
                 INSERT OR IGNORE INTO review_history
@@ -148,7 +152,7 @@ class AnalysisStore:
 
     @synchronized
     def review(self, analysis_id: int, status: str, reviewer: str = "", note: str = "",
-               expected_version: int | None = None) -> None:
+               expected_version: int | None = None, *, reviewer_authenticated: bool = False) -> None:
         if status not in REVIEW_STATUSES:
             raise ValueError(f"status inválido: {status}")
         if expected_version is not None and (type(expected_version) is not int or expected_version < 0):
@@ -167,9 +171,9 @@ class AnalysisStore:
                 "UPDATE reviews SET status=?, reviewer=?, note=?, reviewed_at=?, version=? WHERE analysis_id=?",
                 (status, reviewer, note, reviewed_at, version, analysis_id))
             self._conn.execute(
-                "INSERT INTO review_history (analysis_id, version, status, reviewer, note, reviewed_at, source) "
-                "VALUES (?, ?, ?, ?, ?, ?, 'review')",
-                (analysis_id, version, status, reviewer, note, reviewed_at))
+                "INSERT INTO review_history (analysis_id, version, status, reviewer, note, reviewed_at, source, reviewer_authenticated) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'review', ?)",
+                (analysis_id, version, status, reviewer, note, reviewed_at, int(reviewer_authenticated)))
 
     @synchronized
     def review_history(self, analysis_id: int, limit: int = 50, after_version: int = 0) -> list[dict[str, Any]]:
@@ -179,7 +183,7 @@ class AnalysisStore:
         if self.get(analysis_id) is None:
             raise KeyError(analysis_id)
         return [dict(row) for row in self._conn.execute(
-            "SELECT version, status, reviewer, note, reviewed_at, source FROM review_history "
+            "SELECT version, status, reviewer, note, reviewed_at, source, reviewer_authenticated FROM review_history "
             "WHERE analysis_id = ? AND version > ? ORDER BY version LIMIT ?",
             (analysis_id, after_version, limit))]
 

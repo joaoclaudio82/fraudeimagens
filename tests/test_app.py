@@ -71,3 +71,8 @@ def test_stale_review_form_does_not_overwrite_other_reviewer(tmp_path, monkeypat
     assert store.get(aid)['reviewer'] == 'bia'
     assert len(store.review_history(aid)) == 1
     store.close()
+
+
+@pytest.fixture(autouse=True)
+def local_development_auth(monkeypatch):
+    monkeypatch.setenv("IMAGEGUARD_AUTH_MODE", "disabled")

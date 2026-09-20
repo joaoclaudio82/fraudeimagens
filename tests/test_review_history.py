@@ -136,3 +136,8 @@ def test_api_history_conflict_pagination_and_legacy_client():
         for version in (-1, True, 0.5, '1'):
             assert client.post(path + '/review', json={'status': 'pending', 'expected_version': version}).status_code == 422
     store.close()
+
+
+@pytest.fixture(autouse=True)
+def local_development_auth(monkeypatch):
+    monkeypatch.setenv("IMAGEGUARD_AUTH_MODE", "disabled")

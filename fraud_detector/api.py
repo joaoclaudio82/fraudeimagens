@@ -20,10 +20,11 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from . import ANALYSIS_VERSION, AnalysisConfig, analyze_image
+from .auth import Principal, authenticate, require_roles
 from .context import ImageLimitError
 from .storage import DECISION_ORDER, REVIEW_STATUSES, AnalysisStore, ReviewConflict
 
@@ -72,6 +73,7 @@ def ocr_available() -> bool:
 def create_app(store: AnalysisStore | None = None, config: AnalysisConfig | None = None) -> FastAPI:
     app = FastAPI(title="ImageGuard", version=ANALYSIS_VERSION,
                   description="Triagem explicável de risco em imagens de comprovantes. O score prioriza revisão humana; não comprova fraude.")
+    router = APIRouter(dependencies=[Depends(authenticate)])
     state = {"store": store, "config": config}
 
     def get_store() -> AnalysisStore:
@@ -86,11 +88,15 @@ def create_app(store: AnalysisStore | None = None, config: AnalysisConfig | None
 
     @app.get("/health")
     def health() -> dict[str, Any]:
+        return {"status": "ok", "analysis_version": ANALYSIS_VERSION}
+
+    @router.get("/stats", dependencies=[Depends(require_roles("reviewer", "admin"))])
+    def stats() -> dict[str, Any]:
         cfg = get_config()
         return {"status": "ok", "analysis_version": ANALYSIS_VERSION, "ocr_available": ocr_available(),
                 "scoring_model": cfg.scoring_model, "scoring_mode": cfg.scoring_mode, **get_store().stats()}
 
-    @app.post("/analyze")
+    @router.post("/analyze", dependencies=[Depends(require_roles("operator", "admin"))])
     async def analyze(
         file: UploadFile = File(...),
         expected: str | None = Form(None, description="JSON com os campos esperados"),
@@ -146,38 +152,40 @@ def create_app(store: AnalysisStore | None = None, config: AnalysisConfig | None
             report["images"] = {name: _png_base64(image) for name, image in images.items()}
         return report
 
-    @app.get("/analyses")
+    @router.get("/analyses", dependencies=[Depends(require_roles("operator", "reviewer", "admin"))])
     def list_analyses(limit: int = Query(50, ge=1, le=500), decision: str | None = None, reference: str | None = None) -> list[dict[str, Any]]:
         if decision is not None and decision not in DECISION_ORDER:
             raise HTTPException(422, "decision inválida")
         return get_store().list(limit=limit, decision=decision, reference=reference)
 
-    @app.get("/analyses/{analysis_id}")
+    @router.get("/analyses/{analysis_id}", dependencies=[Depends(require_roles("operator", "reviewer", "admin"))])
     def get_analysis(analysis_id: int) -> dict[str, Any]:
         item = get_store().get(analysis_id)
         if item is None:
             raise HTTPException(404, "análise não encontrada")
         return item
 
-    @app.get("/review-queue")
+    @router.get("/review-queue", dependencies=[Depends(require_roles("reviewer", "admin"))])
     def review_queue(limit: int = Query(50, ge=1, le=500), min_decision: str = "ATENÇÃO") -> list[dict[str, Any]]:
         if min_decision not in DECISION_ORDER:
             raise HTTPException(422, "min_decision inválida")
         return get_store().queue(limit=limit, min_decision=min_decision)
 
-    @app.post("/analyses/{analysis_id}/review")
-    def review(analysis_id: int, body: ReviewRequest) -> dict[str, Any]:
+    @router.post("/analyses/{analysis_id}/review")
+    def review(analysis_id: int, body: ReviewRequest,
+               principal: Principal | None = Depends(require_roles("reviewer", "admin"))) -> dict[str, Any]:
         if body.status not in REVIEW_STATUSES:
             raise HTTPException(400, f"status deve ser um de {REVIEW_STATUSES}")
         try:
-            get_store().review(analysis_id, body.status, body.reviewer, body.note, body.expected_version)
+            get_store().review(analysis_id, body.status, principal.subject if principal else body.reviewer,
+                               body.note, body.expected_version, reviewer_authenticated=principal is not None)
         except ReviewConflict as exc:
             raise HTTPException(409, str(exc)) from exc
         except KeyError:
             raise HTTPException(404, "análise não encontrada") from None
         return {"analysis_id": analysis_id, "status": body.status}
 
-    @app.get("/analyses/{analysis_id}/reviews")
+    @router.get("/analyses/{analysis_id}/reviews", dependencies=[Depends(require_roles("reviewer", "admin"))])
     def review_history(analysis_id: int, limit: int = Query(50, ge=1, le=500),
                        after_version: int = Query(0, ge=0)) -> list[dict[str, Any]]:
         try:
@@ -185,14 +193,15 @@ def create_app(store: AnalysisStore | None = None, config: AnalysisConfig | None
         except KeyError:
             raise HTTPException(404, "análise não encontrada") from None
 
-    @app.get("/export/labels")
+    @router.get("/export/labels", dependencies=[Depends(require_roles("admin"))])
     def export_labels() -> list[dict[str, Any]]:
         return get_store().labeled_rows()
 
-    @app.post("/maintenance/purge")
+    @router.post("/maintenance/purge", dependencies=[Depends(require_roles("admin"))])
     def purge() -> dict[str, int]:
         return {"removed": get_store().purge_expired()}
 
+    app.include_router(router)
     return app
 
 

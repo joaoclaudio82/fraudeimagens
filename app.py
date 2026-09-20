@@ -18,6 +18,11 @@ DEFAULT_MODEL = os.environ.get("IMAGEGUARD_SCORING_MODEL", "models/scoring_logis
 SEVERITY_COLORS = {"alto": (220, 40, 40), "médio": (240, 150, 20), "baixo": (60, 130, 220)}
 
 st.set_page_config(page_title="ImageGuard", page_icon="🔎", layout="wide")
+if os.environ.get("IMAGEGUARD_AUTH_MODE", "required") != "disabled":
+    st.error("Esta interface acessa o banco diretamente e está disponível apenas em desenvolvimento local. "
+             "Para operação autenticada, use a API. O modo local exige IMAGEGUARD_AUTH_MODE=disabled.")
+    st.stop()
+
 st.title("ImageGuard — triagem de risco em comprovantes")
 st.caption(f"Versão da análise {ANALYSIS_VERSION}. O score prioriza revisão humana; não comprova fraude.")
 

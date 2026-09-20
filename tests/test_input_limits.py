@@ -87,3 +87,8 @@ def test_invalid_decision_filters():
     with TestClient(create_app(AnalysisStore(), AnalysisConfig())) as client:
         assert client.get('/analyses', params={'decision': 'typo'}).status_code == 422
         assert client.get('/review-queue', params={'min_decision': 'typo'}).status_code == 422
+
+
+@pytest.fixture(autouse=True)
+def local_development_auth(monkeypatch):
+    monkeypatch.setenv("IMAGEGUARD_AUTH_MODE", "disabled")

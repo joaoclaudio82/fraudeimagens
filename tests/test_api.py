@@ -23,7 +23,7 @@ def receipt_bytes():
 
 
 def test_health(client):
-    body = client.get("/health").json()
+    body = client.get("/stats").json()
     assert body["status"] == "ok" and "ocr_available" in body and body["analyses"] == 0
 
 
@@ -57,7 +57,7 @@ def test_analyze_register_and_review_flow(client, receipt_bytes):
     labels = client.get("/export/labels").json()
     assert len(labels) == 1 and labels[0]["label"] == 1 and "features" in labels[0]
     assert client.post("/maintenance/purge").json() == {"removed": 0}
-    assert client.get("/health").json()["confirmed_fraud"] == 1
+    assert client.get("/stats").json()["confirmed_fraud"] == 1
 
 
 def test_analyze_without_register_and_bad_inputs(client, receipt_bytes):
@@ -76,3 +76,8 @@ def test_editor_metadata_reaches_the_queue(client, receipt_bytes):
     assert any(f["code"] == "editing_software" for f in body["findings"])
     queue = client.get("/review-queue").json()
     assert queue and queue[0]["findings"][0]["code"]
+
+
+@pytest.fixture(autouse=True)
+def local_development_auth(monkeypatch):
+    monkeypatch.setenv("IMAGEGUARD_AUTH_MODE", "disabled")
