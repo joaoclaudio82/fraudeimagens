@@ -217,3 +217,11 @@ O JSON `expected` aceita apenas os campos documentados, com valores textuais ou
 numéricos finitos. As consultas de análises e da fila aceitam `limit` entre 1 e 500.
 Veja [melhorias implementadas e próximas evoluções](docs/evolucoes.md), incluindo
 compatibilidade, limites operacionais e critérios para as próximas entregas.
+
+### Histórico de pareceres
+
+As revisões agora preservam os pareceres anteriores com versão, revisor,
+justificativa e data. Consulte `GET /analyses/{id}/reviews` ou o histórico na
+interface. Envie `expected_version` ao registrar um parecer pela API para detectar
+conflitos entre revisores (HTTP 409). Bancos existentes são migrados na abertura.
+Veja [migração, exemplos e garantias](docs/revisoes.md).

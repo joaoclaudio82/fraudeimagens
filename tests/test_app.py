@@ -36,3 +36,38 @@ def test_review_queue_lists_pending_items(tmp_path, monkeypatch):
     assert any("1 pendente" in item.value for item in at.subheader)
     assert any("PED-9" in item.label for item in at.expander)
     assert at.metric[0].value == "1"
+
+
+def test_review_submission_displays_history(tmp_path, monkeypatch):
+    db = tmp_path / 'history-ui.sqlite'
+    store = AnalysisStore(db)
+    aid = store.save({'filename': 'a.jpg', 'risk_score': 60, 'decision': 'REVISAR'}, register_hashes=False)
+    store.close()
+    monkeypatch.setenv('IMAGEGUARD_DB', str(db))
+    at = AppTest.from_file('app.py', default_timeout=60).run()
+    at.text_input(key=f'rev-{aid}').set_value('ana')
+    at.text_input(key=f'note-{aid}').set_value('conferido')
+    at.radio(key=f'dec-{aid}').set_value('legitimate')
+    next(button for button in at.button if button.label == 'Registrar decisão').click().run()
+    assert not at.exception, at.exception
+    store = AnalysisStore(db)
+    assert store.get(aid)['review_version'] == 1
+    assert store.review_history(aid)[0]['reviewer'] == 'ana'
+    assert any('Justificativa' in frame.value.columns for frame in at.dataframe)
+    store.close()
+
+
+def test_stale_review_form_does_not_overwrite_other_reviewer(tmp_path, monkeypatch):
+    db = tmp_path / 'conflict-ui.sqlite'
+    store = AnalysisStore(db)
+    aid = store.save({'filename': 'a.jpg', 'risk_score': 60, 'decision': 'REVISAR'}, register_hashes=False)
+    monkeypatch.setenv('IMAGEGUARD_DB', str(db))
+    at = AppTest.from_file('app.py', default_timeout=60).run()
+    store.review(aid, 'pending', 'bia', 'aguarda confirmação', expected_version=0)
+    at.radio(key=f'dec-{aid}').set_value('legitimate')
+    next(button for button in at.button if button.label == 'Registrar decisão').click().run()
+    assert not at.exception, at.exception
+    assert any('outro revisor' in error.value for error in at.error)
+    assert store.get(aid)['reviewer'] == 'bia'
+    assert len(store.review_history(aid)) == 1
+    store.close()

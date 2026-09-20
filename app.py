@@ -11,7 +11,7 @@ import streamlit as st
 from PIL import Image, ImageDraw
 
 from fraud_detector import ANALYSIS_VERSION, AnalysisConfig, analyze_image
-from fraud_detector.storage import AnalysisStore
+from fraud_detector.storage import AnalysisStore, ReviewConflict
 
 DEFAULT_DB = os.environ.get("IMAGEGUARD_DB", "data/imageguard.sqlite")
 DEFAULT_MODEL = os.environ.get("IMAGEGUARD_SCORING_MODEL", "models/scoring_logistic.json")
@@ -185,6 +185,8 @@ st.subheader(f"Fila de revisão humana ({len(queue)} pendente(s))")
 if not queue:
     st.info("Nenhuma análise pendente com ATENÇÃO ou REVISAR.")
 for item in queue:
+    version_key = f"review-version:{db_path}:{item['id']}"
+    st.session_state.setdefault(version_key, item["review_version"])
     with st.expander(f"#{item['id']} · score {item['score']} · {item['decision']} · {item['filename']} · ref {item['reference'] or '-'}"):
         st.write(", ".join(f"{f['code']} (+{f['points']})" for f in item["findings"]) or "sem indicadores")
         with st.form(f"review-{item['id']}"):
@@ -194,12 +196,41 @@ for item in queue:
                                 format_func=lambda v: {"confirmed_fraud": "Fraude confirmada", "legitimate": "Legítimo",
                                                        "inconclusive": "Inconclusivo"}[v], key=f"dec-{item['id']}")
             if st.form_submit_button("Registrar decisão"):
-                store.review(item["id"], decision, reviewer, note)
-                st.success("Decisão registrada; ela alimenta a base rotulada para recalibrar o score.")
-                st.rerun()
+                try:
+                    store.review(item["id"], decision, reviewer, note,
+                                 expected_version=st.session_state[version_key])
+                except ReviewConflict:
+                    st.session_state.pop(version_key, None)
+                    st.error("O parecer foi alterado por outro revisor. Recarregue a página antes de decidir.")
+                except KeyError:
+                    st.session_state.pop(version_key, None)
+                    st.error("Esta análise não está mais disponível. Recarregue a página.")
+                else:
+                    st.session_state.pop(version_key, None)
+                    st.success("Decisão registrada no histórico de pareceres.")
+                    st.rerun()
 
 history = store.list(limit=20)
 if history:
     st.subheader("Histórico")
     st.dataframe(pd.DataFrame(history)[["id", "created_at", "filename", "reference", "score", "decision", "status", "reviewer"]],
                  use_container_width=True, hide_index=True)
+
+    with st.expander("Consultar histórico de pareceres"):
+        selected = st.selectbox("Análise", [row["id"] for row in history],
+                                format_func=lambda value: f"Análise #{value}")
+        after = st.number_input("Mostrar versões após", min_value=0, value=0, step=1)
+        try:
+            events = store.review_history(selected, limit=50, after_version=int(after))
+        except KeyError:
+            st.info("Análise não disponível. Atualize a página.")
+        else:
+            if events:
+                st.dataframe(pd.DataFrame(events).rename(columns={
+                    "version": "Versão", "status": "Parecer", "reviewer": "Revisor",
+                    "note": "Justificativa", "reviewed_at": "Data (UTC)", "source": "Origem",
+                }), use_container_width=True, hide_index=True)
+                if len(events) == 50:
+                    st.caption(f"Para continuar, informe {events[-1]['version']} em 'Mostrar versões após'.")
+            else:
+                st.info("Nenhum parecer nesta faixa de versões.")
